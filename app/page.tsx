@@ -273,14 +273,14 @@ export default function Home() {
         <div className="max-w-2xl mx-auto flex">
           <Link
             href="/"
-            className="flex-1 py-4 text-center text-white bg-gray-700"
+            className="flex-1 pt-3 pb-5 text-center text-white bg-gray-700"
           >
             <div className="text-xl">🎤</div>
             <div className="text-xs">Counter</div>
           </Link>
           <Link
             href="/history"
-            className="flex-1 py-4 text-center text-gray-400 hover:text-white transition-colors"
+            className="flex-1 pt-3 pb-5 text-center text-gray-400 hover:text-white transition-colors"
           >
             <div className="text-xl">📊</div>
             <div className="text-xs">History</div>
