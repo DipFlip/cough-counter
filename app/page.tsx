@@ -6,6 +6,7 @@ import { useAudioAnalyzer } from "@/hooks/useAudioAnalyzer";
 import { useCoughDetector } from "@/hooks/useCoughDetector";
 import { useRecordings } from "@/hooks/useRecordings";
 import { EKGDisplay } from "@/components/EKGDisplay";
+import { APP_VERSION } from "@/lib/version";
 
 const AUTO_SAVE_INTERVAL = 60000; // 60 seconds
 
@@ -262,6 +263,7 @@ export default function Home() {
             <p>1. Click &quot;Enable Microphone&quot; to allow access</p>
             <p>2. Click &quot;Start Calibration&quot; and cough once</p>
             <p>3. The app will detect coughs at 75% of your calibration volume</p>
+            <p className="mt-4 text-gray-600">v{APP_VERSION}</p>
           </div>
         )}
       </div>
