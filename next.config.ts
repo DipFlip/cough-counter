@@ -2,7 +2,8 @@ import type { NextConfig } from "next";
 import withPWA from "next-pwa";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Allow webpack config from next-pwa with Turbopack
+  turbopack: {},
 };
 
 const pwaConfig = withPWA({
