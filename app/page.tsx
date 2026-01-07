@@ -2,7 +2,7 @@
 
 import { useAudioAnalyzer } from "@/hooks/useAudioAnalyzer";
 import { useCoughDetector } from "@/hooks/useCoughDetector";
-import { VolumeMeter } from "@/components/VolumeMeter";
+import { EKGDisplay } from "@/components/EKGDisplay";
 
 export default function Home() {
   const { volume, isListening, error, start, stop } = useAudioAnalyzer();
@@ -14,6 +14,9 @@ export default function Home() {
     calibrationProgress,
     startCalibration,
     reset,
+    addManualCough,
+    raiseThreshold,
+    lowerThreshold,
   } = useCoughDetector({ volume, isListening });
 
   const handleStart = async () => {
@@ -37,14 +40,14 @@ export default function Home() {
   return (
     <div
       className={`min-h-screen flex flex-col items-center justify-center p-8 transition-colors duration-100 ${
-        showCoughFlash ? "bg-red-100" : "bg-gray-50"
+        showCoughFlash ? "bg-red-900" : "bg-gray-900"
       }`}
     >
-      <div className="w-full max-w-md space-y-8">
+      <div className="w-full max-w-2xl space-y-6">
         {/* Header */}
         <div className="text-center">
-          <h1 className="text-4xl font-bold text-gray-900">Cough Counter</h1>
-          <p className="mt-2 text-gray-600">
+          <h1 className="text-4xl font-bold text-white">Cough Counter</h1>
+          <p className="mt-2 text-gray-400">
             {state === "idle" && "Calibrate your microphone to start counting"}
             {state === "calibrating" && "Cough now to calibrate!"}
             {state === "counting" && "Listening for coughs..."}
@@ -58,24 +61,22 @@ export default function Home() {
           </div>
         )}
 
-        {/* Volume meter */}
+        {/* EKG Display */}
         {isListening && (
-          <div className="space-y-2">
-            <VolumeMeter
-              volume={volume}
-              threshold={threshold}
-              showThreshold={state === "counting"}
-            />
-          </div>
+          <EKGDisplay
+            volume={volume}
+            threshold={threshold}
+            showThreshold={state === "counting"}
+          />
         )}
 
         {/* Calibration progress */}
         {state === "calibrating" && (
           <div className="space-y-2">
-            <div className="text-center text-lg font-medium text-gray-700">
+            <div className="text-center text-lg font-medium text-gray-300">
               Calibrating... {Math.round(calibrationProgress)}%
             </div>
-            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+            <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
               <div
                 className="h-full bg-blue-500 transition-all duration-100"
                 style={{ width: `${calibrationProgress}%` }}
@@ -87,16 +88,37 @@ export default function Home() {
         {/* Stats */}
         {state === "counting" && (
           <div className="grid grid-cols-2 gap-4">
-            <div className="p-6 bg-white rounded-xl shadow-lg text-center">
-              <div className="text-5xl font-bold text-blue-600">{coughCount}</div>
-              <div className="mt-2 text-gray-500">Total Coughs</div>
+            <div className="p-6 bg-gray-800 rounded-xl text-center">
+              <div className="text-5xl font-bold text-blue-400">{coughCount}</div>
+              <div className="mt-2 text-gray-400">Total Coughs</div>
             </div>
-            <div className="p-6 bg-white rounded-xl shadow-lg text-center">
-              <div className="text-5xl font-bold text-purple-600">
+            <div className="p-6 bg-gray-800 rounded-xl text-center">
+              <div className="text-5xl font-bold text-purple-400">
                 {coughsPerMinute.toFixed(1)}
               </div>
-              <div className="mt-2 text-gray-500">Per Minute</div>
+              <div className="mt-2 text-gray-400">Per Minute</div>
             </div>
+          </div>
+        )}
+
+        {/* Threshold controls */}
+        {state === "counting" && (
+          <div className="flex items-center justify-center gap-4">
+            <button
+              onClick={lowerThreshold}
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-colors"
+            >
+              − Threshold
+            </button>
+            <span className="text-gray-300 font-mono">
+              {threshold.toFixed(1)}
+            </span>
+            <button
+              onClick={raiseThreshold}
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-colors"
+            >
+              + Threshold
+            </button>
           </div>
         )}
 
@@ -121,12 +143,20 @@ export default function Home() {
           )}
 
           {state === "counting" && (
-            <button
-              onClick={handleReset}
-              className="w-full py-4 px-6 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-xl transition-colors"
-            >
-              Reset
-            </button>
+            <div className="flex gap-4">
+              <button
+                onClick={addManualCough}
+                className="flex-1 py-4 px-6 bg-orange-600 hover:bg-orange-700 text-white font-semibold rounded-xl transition-colors"
+              >
+                + Add Cough
+              </button>
+              <button
+                onClick={handleReset}
+                className="flex-1 py-4 px-6 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-xl transition-colors"
+              >
+                Reset
+              </button>
+            </div>
           )}
         </div>
 
