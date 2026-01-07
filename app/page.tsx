@@ -15,7 +15,7 @@ export default function Home() {
     state,
     threshold,
     coughCount,
-    coughsPerMinute,
+    coughsPerHour,
     calibrationProgress,
     elapsedSeconds,
     startCalibration,
@@ -47,7 +47,7 @@ export default function Home() {
       date: sessionDate.toISOString(),
       totalTime: elapsedSeconds,
       totalCoughs: coughCount,
-      avgCPM: coughsPerMinute,
+      avgCPH: coughsPerHour,
       note: "",
       isManual: false,
     });
@@ -177,9 +177,9 @@ export default function Home() {
             </div>
             <div className="p-4 bg-gray-800 rounded-xl text-center">
               <div className="text-4xl font-bold text-purple-400">
-                {coughsPerMinute.toFixed(2)}
+                {coughsPerHour.toFixed(1)}
               </div>
-              <div className="mt-2 text-gray-400 text-sm">Per Minute</div>
+              <div className="mt-2 text-gray-400 text-sm">Per Hour</div>
             </div>
             <div className="p-4 bg-gray-800 rounded-xl text-center">
               <div className="text-4xl font-bold text-green-400 font-mono">

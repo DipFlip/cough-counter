@@ -37,7 +37,14 @@ export function useAudioAnalyzer() {
     try {
       setError(null);
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Disable auto-gain, noise suppression, echo cancellation for consistent volume
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          autoGainControl: false,
+          noiseSuppression: false,
+          echoCancellation: false,
+        },
+      });
       mediaStreamRef.current = stream;
 
       const audioContext = new AudioContext();

@@ -7,7 +7,7 @@ export interface CoughRecording {
   date: string;
   totalTime: number;
   totalCoughs: number;
-  avgCPM: number;
+  avgCPH: number;
   note: string;
   isManual: boolean;
 }

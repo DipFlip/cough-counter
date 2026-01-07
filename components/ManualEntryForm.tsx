@@ -18,7 +18,7 @@ export function ManualEntryForm({ onSubmit, onCancel }: ManualEntryFormProps) {
 
   const coughs = parseInt(totalCoughs) || 0;
   const minutes = parseFloat(durationMinutes) || 0;
-  const calculatedCPM = minutes > 0 ? coughs / minutes : 0;
+  const calculatedCPH = minutes > 0 ? (coughs / minutes) * 60 : 0;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,7 +34,7 @@ export function ManualEntryForm({ onSubmit, onCancel }: ManualEntryFormProps) {
       date: dateTime.toISOString(),
       totalCoughs: coughs,
       totalTime: Math.round(minutes * 60),
-      avgCPM: calculatedCPM,
+      avgCPH: calculatedCPH,
       note,
       isManual: true,
     });
@@ -95,11 +95,11 @@ export function ManualEntryForm({ onSubmit, onCancel }: ManualEntryFormProps) {
         </div>
       </div>
 
-      {/* Calculated CPM preview */}
+      {/* Calculated CPH preview */}
       {coughs > 0 && minutes > 0 && (
         <div className="bg-gray-700 rounded-lg p-3 text-center">
-          <div className="text-gray-400 text-sm">Calculated CPM</div>
-          <div className="text-2xl font-bold text-purple-400">{calculatedCPM.toFixed(2)}</div>
+          <div className="text-gray-400 text-sm">Calculated CPH (per hour)</div>
+          <div className="text-2xl font-bold text-purple-400">{calculatedCPH.toFixed(1)}</div>
         </div>
       )}
 

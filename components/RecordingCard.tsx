@@ -54,9 +54,9 @@ export function RecordingCard({ recording, onUpdateNote, onDelete }: RecordingCa
         </div>
         <div className="text-right">
           <div className="text-2xl font-bold text-purple-400">
-            {recording.avgCPM.toFixed(2)}
+            {recording.avgCPH.toFixed(1)}
           </div>
-          <div className="text-gray-400 text-xs">CPM</div>
+          <div className="text-gray-400 text-xs">CPH</div>
         </div>
       </div>
 
