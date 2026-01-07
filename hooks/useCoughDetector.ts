@@ -5,7 +5,6 @@ import { useState, useRef, useCallback, useEffect } from "react";
 const CALIBRATION_DURATION = 3000; // 3 seconds
 const COUGH_DEBOUNCE = 300; // 300ms debounce
 const DEFAULT_THRESHOLD_MULTIPLIER = 0.75; // 75% of calibration volume
-const CPM_UPDATE_INTERVAL = 10000; // 10 seconds
 const THRESHOLD_STEP = 2; // Amount to adjust threshold by
 
 interface UseCoughDetectorProps {
@@ -20,22 +19,23 @@ export function useCoughDetector({ volume, isListening }: UseCoughDetectorProps)
   const [coughCount, setCoughCount] = useState(0);
   const [coughsPerMinute, setCoughsPerMinute] = useState(0);
   const [calibrationProgress, setCalibrationProgress] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   const peakVolumeRef = useRef(0);
   const coughTimestampsRef = useRef<number[]>([]);
   const lastCoughTimeRef = useRef(0);
   const calibrationStartRef = useRef(0);
-  const cpmIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const countingStartRef = useRef(0);
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const calculateCPM = useCallback(() => {
-    const now = Date.now();
-    const oneMinuteAgo = now - 60000;
-
-    // Filter coughs from last 60 seconds
-    const recentCoughs = coughTimestampsRef.current.filter((t) => t > oneMinuteAgo);
-    coughTimestampsRef.current = recentCoughs;
-
-    setCoughsPerMinute(recentCoughs.length);
+  const calculateCPM = useCallback((currentCoughCount: number, currentElapsedSeconds: number) => {
+    if (currentElapsedSeconds <= 0) {
+      setCoughsPerMinute(0);
+      return;
+    }
+    const elapsedMinutes = currentElapsedSeconds / 60;
+    const cpm = currentCoughCount / elapsedMinutes;
+    setCoughsPerMinute(cpm);
   }, []);
 
   const startCalibration = useCallback(() => {
@@ -64,9 +64,14 @@ export function useCoughDetector({ volume, isListening }: UseCoughDetectorProps)
         setCalibrationVolume(peakVolumeRef.current);
         setThreshold(peakVolumeRef.current * DEFAULT_THRESHOLD_MULTIPLIER);
         setState("counting");
+        countingStartRef.current = Date.now();
+        setElapsedSeconds(0);
 
-        // Start CPM update interval
-        cpmIntervalRef.current = setInterval(calculateCPM, CPM_UPDATE_INTERVAL);
+        // Start timer interval (update every second)
+        timerIntervalRef.current = setInterval(() => {
+          const elapsed = Math.floor((Date.now() - countingStartRef.current) / 1000);
+          setElapsedSeconds(elapsed);
+        }, 1000);
       } else {
         // No sound detected, reset
         setState("idle");
@@ -82,21 +87,25 @@ export function useCoughDetector({ volume, isListening }: UseCoughDetectorProps)
     setCoughCount(0);
     setCoughsPerMinute(0);
     setCalibrationProgress(0);
+    setElapsedSeconds(0);
     peakVolumeRef.current = 0;
     coughTimestampsRef.current = [];
     lastCoughTimeRef.current = 0;
+    countingStartRef.current = 0;
 
-    if (cpmIntervalRef.current) {
-      clearInterval(cpmIntervalRef.current);
-      cpmIntervalRef.current = null;
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
     }
   }, []);
 
   const addManualCough = useCallback(() => {
-    const now = Date.now();
-    coughTimestampsRef.current.push(now);
-    setCoughCount((prev) => prev + 1);
-    calculateCPM();
+    setCoughCount((prev) => {
+      const newCount = prev + 1;
+      const elapsed = Math.floor((Date.now() - countingStartRef.current) / 1000);
+      calculateCPM(newCount, elapsed);
+      return newCount;
+    });
   }, [calculateCPM]);
 
   const raiseThreshold = useCallback(() => {
@@ -122,17 +131,27 @@ export function useCoughDetector({ volume, isListening }: UseCoughDetectorProps)
 
     if (volume > threshold && now - lastCoughTimeRef.current > COUGH_DEBOUNCE) {
       lastCoughTimeRef.current = now;
-      coughTimestampsRef.current.push(now);
-      setCoughCount((prev) => prev + 1);
-      calculateCPM();
+      setCoughCount((prev) => {
+        const newCount = prev + 1;
+        const elapsed = Math.floor((Date.now() - countingStartRef.current) / 1000);
+        calculateCPM(newCount, elapsed);
+        return newCount;
+      });
     }
   }, [state, volume, threshold, isListening, calculateCPM]);
+
+  // Update CPM every 10 seconds even without new coughs
+  useEffect(() => {
+    if (state === "counting" && elapsedSeconds > 0) {
+      calculateCPM(coughCount, elapsedSeconds);
+    }
+  }, [state, elapsedSeconds, coughCount, calculateCPM]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (cpmIntervalRef.current) {
-        clearInterval(cpmIntervalRef.current);
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
       }
     };
   }, []);
@@ -144,6 +163,7 @@ export function useCoughDetector({ volume, isListening }: UseCoughDetectorProps)
     coughCount,
     coughsPerMinute,
     calibrationProgress,
+    elapsedSeconds,
     startCalibration,
     reset,
     addManualCough,

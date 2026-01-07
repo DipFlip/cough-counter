@@ -12,12 +12,20 @@ export default function Home() {
     coughCount,
     coughsPerMinute,
     calibrationProgress,
+    elapsedSeconds,
     startCalibration,
     reset,
     addManualCough,
     raiseThreshold,
     lowerThreshold,
   } = useCoughDetector({ volume, isListening });
+
+  // Format elapsed time as MM:SS
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
 
   const handleStart = async () => {
     await start();
@@ -87,16 +95,22 @@ export default function Home() {
 
         {/* Stats */}
         {state === "counting" && (
-          <div className="grid grid-cols-2 gap-4">
-            <div className="p-6 bg-gray-800 rounded-xl text-center">
-              <div className="text-5xl font-bold text-blue-400">{coughCount}</div>
-              <div className="mt-2 text-gray-400">Total Coughs</div>
+          <div className="grid grid-cols-3 gap-4">
+            <div className="p-4 bg-gray-800 rounded-xl text-center">
+              <div className="text-4xl font-bold text-blue-400">{coughCount}</div>
+              <div className="mt-2 text-gray-400 text-sm">Total Coughs</div>
             </div>
-            <div className="p-6 bg-gray-800 rounded-xl text-center">
-              <div className="text-5xl font-bold text-purple-400">
-                {coughsPerMinute.toFixed(1)}
+            <div className="p-4 bg-gray-800 rounded-xl text-center">
+              <div className="text-4xl font-bold text-purple-400">
+                {coughsPerMinute.toFixed(2)}
               </div>
-              <div className="mt-2 text-gray-400">Per Minute</div>
+              <div className="mt-2 text-gray-400 text-sm">Per Minute</div>
+            </div>
+            <div className="p-4 bg-gray-800 rounded-xl text-center">
+              <div className="text-4xl font-bold text-green-400 font-mono">
+                {formatTime(elapsedSeconds)}
+              </div>
+              <div className="mt-2 text-gray-400 text-sm">Total Time</div>
             </div>
           </div>
         )}
