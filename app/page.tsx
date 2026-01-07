@@ -1,8 +1,13 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useAudioAnalyzer } from "@/hooks/useAudioAnalyzer";
 import { useCoughDetector } from "@/hooks/useCoughDetector";
+import { useRecordings } from "@/hooks/useRecordings";
 import { EKGDisplay } from "@/components/EKGDisplay";
+
+const AUTO_SAVE_INTERVAL = 60000; // 60 seconds
 
 export default function Home() {
   const { volume, isListening, error, start, stop } = useAudioAnalyzer();
@@ -20,12 +25,72 @@ export default function Home() {
     lowerThreshold,
   } = useCoughDetector({ volume, isListening });
 
+  const { upsertRecording } = useRecordings();
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const autoSaveIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const sessionStartRef = useRef<Date | null>(null);
+
   // Format elapsed time as MM:SS
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
+
+  // Save current session
+  const saveSession = () => {
+    if (elapsedSeconds <= 0) return;
+
+    const sessionDate = sessionStartRef.current || new Date();
+    const id = upsertRecording(currentSessionId, {
+      date: sessionDate.toISOString(),
+      totalTime: elapsedSeconds,
+      totalCoughs: coughCount,
+      avgCPM: coughsPerMinute,
+      note: "",
+      isManual: false,
+    });
+
+    if (!currentSessionId) {
+      setCurrentSessionId(id);
+    }
+    setLastSaved(new Date());
+  };
+
+  // Start auto-save when counting starts
+  useEffect(() => {
+    if (state === "counting") {
+      sessionStartRef.current = new Date();
+
+      // Start auto-save interval
+      autoSaveIntervalRef.current = setInterval(() => {
+        saveSession();
+      }, AUTO_SAVE_INTERVAL);
+
+      return () => {
+        if (autoSaveIntervalRef.current) {
+          clearInterval(autoSaveIntervalRef.current);
+        }
+      };
+    } else {
+      // Clear interval when not counting
+      if (autoSaveIntervalRef.current) {
+        clearInterval(autoSaveIntervalRef.current);
+        autoSaveIntervalRef.current = null;
+      }
+    }
+  }, [state]);
+
+  // Save on cough count change (debounced via the auto-save)
+  useEffect(() => {
+    if (state === "counting" && coughCount > 0) {
+      // Save immediately on first cough, then rely on interval
+      if (!lastSaved) {
+        saveSession();
+      }
+    }
+  }, [coughCount]);
 
   const handleStart = async () => {
     await start();
@@ -38,6 +103,16 @@ export default function Home() {
   };
 
   const handleReset = () => {
+    // Final save before reset
+    if (state === "counting" && elapsedSeconds > 0) {
+      saveSession();
+    }
+
+    // Clear session
+    setCurrentSessionId(null);
+    setLastSaved(null);
+    sessionStartRef.current = null;
+
     reset();
     stop();
   };
@@ -47,7 +122,7 @@ export default function Home() {
 
   return (
     <div
-      className={`min-h-screen flex flex-col items-center justify-center p-8 transition-colors duration-100 ${
+      className={`min-h-screen flex flex-col items-center justify-center p-8 pb-24 transition-colors duration-100 ${
         showCoughFlash ? "bg-red-900" : "bg-gray-900"
       }`}
     >
@@ -115,6 +190,13 @@ export default function Home() {
           </div>
         )}
 
+        {/* Auto-save indicator */}
+        {state === "counting" && lastSaved && (
+          <div className="text-center text-gray-500 text-sm">
+            ✓ Auto-saved at {lastSaved.toLocaleTimeString()}
+          </div>
+        )}
+
         {/* Threshold controls */}
         {state === "counting" && (
           <div className="flex items-center justify-center gap-4">
@@ -168,7 +250,7 @@ export default function Home() {
                 onClick={handleReset}
                 className="flex-1 py-4 px-6 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-xl transition-colors"
               >
-                Reset
+                Stop & Save
               </button>
             </div>
           )}
@@ -183,6 +265,26 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Bottom navigation */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-gray-800 border-t border-gray-700">
+        <div className="max-w-2xl mx-auto flex">
+          <Link
+            href="/"
+            className="flex-1 py-4 text-center text-white bg-gray-700"
+          >
+            <div className="text-xl">🎤</div>
+            <div className="text-xs">Counter</div>
+          </Link>
+          <Link
+            href="/history"
+            className="flex-1 py-4 text-center text-gray-400 hover:text-white transition-colors"
+          >
+            <div className="text-xl">📊</div>
+            <div className="text-xs">History</div>
+          </Link>
+        </div>
+      </nav>
     </div>
   );
 }
