@@ -11,7 +11,7 @@ export function useAudioAnalyzer() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const dataArrayRef = useRef<Uint8Array | null>(null);
+  const dataArrayRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
 
   const calculateVolume = useCallback(() => {
     if (!analyserRef.current || !dataArrayRef.current) return;
