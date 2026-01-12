@@ -15,6 +15,7 @@ export default function Home() {
   const {
     state,
     threshold,
+    calibrationVolume,
     coughCount,
     coughsPerHour,
     calibrationProgress,
@@ -150,6 +151,7 @@ export default function Home() {
           <EKGDisplay
             volume={volume}
             threshold={threshold}
+            calibrationVolume={calibrationVolume}
             showThreshold={state === "counting"}
           />
         )}

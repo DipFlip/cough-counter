@@ -5,13 +5,14 @@ import { useEffect, useRef } from "react";
 interface EKGDisplayProps {
   volume: number;
   threshold: number;
+  calibrationVolume: number;
   showThreshold: boolean;
 }
 
 const HISTORY_LENGTH = 150;
 const HEIGHT = 120;
 
-export function EKGDisplay({ volume, threshold, showThreshold }: EKGDisplayProps) {
+export function EKGDisplay({ volume, threshold, calibrationVolume, showThreshold }: EKGDisplayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const historyRef = useRef<number[]>([]);
 
@@ -30,6 +31,10 @@ export function EKGDisplay({ volume, threshold, showThreshold }: EKGDisplayProps
 
     const width = canvas.width;
     const height = canvas.height;
+
+    // Scale based on calibration volume (with some headroom)
+    // Use calibration volume * 1.3 as max, or 100 if not calibrated
+    const maxScale = calibrationVolume > 0 ? calibrationVolume * 1.3 : 100;
 
     // Clear canvas
     ctx.fillStyle = "#1a1a2e";
@@ -53,7 +58,7 @@ export function EKGDisplay({ volume, threshold, showThreshold }: EKGDisplayProps
 
     // Draw threshold line
     if (showThreshold && threshold > 0) {
-      const thresholdY = height - (threshold / 100) * height;
+      const thresholdY = height - (threshold / maxScale) * height;
       ctx.strokeStyle = "#fbbf24";
       ctx.lineWidth = 2;
       ctx.setLineDash([5, 5]);
@@ -66,7 +71,7 @@ export function EKGDisplay({ volume, threshold, showThreshold }: EKGDisplayProps
       // Threshold label
       ctx.fillStyle = "#fbbf24";
       ctx.font = "12px monospace";
-      ctx.fillText(`Threshold: ${threshold.toFixed(0)}`, 5, thresholdY - 5);
+      ctx.fillText(`Threshold: ${threshold.toFixed(1)}`, 5, Math.max(15, thresholdY - 5));
     }
 
     // Draw volume line
@@ -82,7 +87,7 @@ export function EKGDisplay({ volume, threshold, showThreshold }: EKGDisplayProps
 
     for (let i = 0; i < history.length; i++) {
       const x = startX + i * stepX;
-      const y = height - (history[i] / 100) * height;
+      const y = height - Math.min(1, history[i] / maxScale) * height;
 
       // Color red if above threshold
       if (showThreshold && history[i] > threshold) {
@@ -109,7 +114,7 @@ export function EKGDisplay({ volume, threshold, showThreshold }: EKGDisplayProps
     ctx.fillStyle = "#ffffff";
     ctx.font = "14px monospace";
     ctx.fillText(`Vol: ${volume.toFixed(1)}`, width - 80, 20);
-  }, [volume, threshold, showThreshold]);
+  }, [volume, threshold, calibrationVolume, showThreshold]);
 
   return (
     <div className="w-full">
