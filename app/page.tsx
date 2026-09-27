@@ -20,12 +20,12 @@ export default function Home() {
     elapsedSeconds,
     start,
     reset,
-    addManualCough,
   } = useCoughDetector();
 
   const { upsertRecording } = useRecordings();
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [note, setNote] = useState("");
   const autoSaveIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const sessionStartRef = useRef<Date | null>(null);
 
@@ -46,7 +46,7 @@ export default function Home() {
       totalTime: elapsedSeconds,
       totalCoughs: coughCount,
       avgCPH: coughsPerHour,
-      note: "",
+      note,
       isManual: false,
     });
 
@@ -56,6 +56,12 @@ export default function Home() {
     setLastSaved(new Date());
   };
 
+  // Keep a ref to the latest saveSession so the interval doesn't save stale values
+  const saveSessionRef = useRef(saveSession);
+  useEffect(() => {
+    saveSessionRef.current = saveSession;
+  });
+
   // Start auto-save when counting starts
   useEffect(() => {
     if (state === "counting") {
@@ -63,7 +69,7 @@ export default function Home() {
 
       // Start auto-save interval
       autoSaveIntervalRef.current = setInterval(() => {
-        saveSession();
+        saveSessionRef.current();
       }, AUTO_SAVE_INTERVAL);
 
       return () => {
@@ -99,6 +105,7 @@ export default function Home() {
     // Clear session
     setCurrentSessionId(null);
     setLastSaved(null);
+    setNote("");
     sessionStartRef.current = null;
 
     reset();
@@ -135,23 +142,40 @@ export default function Home() {
 
         {/* Stats */}
         {state === "counting" && (
-          <div className="grid grid-cols-3 gap-4">
-            <div className="p-4 bg-gray-800 rounded-xl text-center">
-              <div className="text-4xl font-bold text-blue-400">{coughCount}</div>
-              <div className="mt-2 text-gray-400 text-sm">Total Coughs</div>
+          <div className="grid grid-cols-3 gap-2 sm:gap-4">
+            <div className="py-4 px-2 bg-gray-800 rounded-xl text-center">
+              <div className="text-2xl sm:text-4xl font-bold text-blue-400 tabular-nums">{coughCount}</div>
+              <div className="mt-2 text-gray-400 text-xs sm:text-sm">Total Coughs</div>
             </div>
-            <div className="p-4 bg-gray-800 rounded-xl text-center">
-              <div className="text-4xl font-bold text-purple-400">
-                {coughsPerHour.toFixed(1)}
+            <div className="py-4 px-2 bg-gray-800 rounded-xl text-center">
+              <div className="text-2xl sm:text-4xl font-bold text-purple-400 tabular-nums">
+                {coughsPerHour.toFixed(coughsPerHour >= 100 ? 0 : 1)}
               </div>
-              <div className="mt-2 text-gray-400 text-sm">Per Hour</div>
+              <div className="mt-2 text-gray-400 text-xs sm:text-sm">Per Hour</div>
             </div>
-            <div className="p-4 bg-gray-800 rounded-xl text-center">
-              <div className="text-4xl font-bold text-green-400 font-mono">
+            <div className="py-4 px-2 bg-gray-800 rounded-xl text-center">
+              <div className="text-2xl sm:text-4xl font-bold text-green-400 font-mono">
                 {formatTime(elapsedSeconds)}
               </div>
-              <div className="mt-2 text-gray-400 text-sm">Total Time</div>
+              <div className="mt-2 text-gray-400 text-xs sm:text-sm">Total Time</div>
             </div>
+          </div>
+        )}
+
+        {/* Note, saved with the recording (editable later in History) */}
+        {state === "counting" && (
+          <div>
+            <label htmlFor="session-note" className="text-gray-400 text-sm block mb-1">
+              Note
+            </label>
+            <textarea
+              id="session-note"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="w-full bg-gray-800 text-white rounded-lg p-2 text-base resize-none"
+              rows={2}
+              placeholder="Add a note..."
+            />
           </div>
         )}
 
@@ -183,20 +207,12 @@ export default function Home() {
           )}
 
           {state === "counting" && (
-            <div className="flex gap-4">
-              <button
-                onClick={addManualCough}
-                className="flex-1 py-4 px-6 bg-orange-600 hover:bg-orange-700 text-white font-semibold rounded-xl transition-colors"
-              >
-                + Add Cough
-              </button>
-              <button
-                onClick={handleReset}
-                className="flex-1 py-4 px-6 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-xl transition-colors"
-              >
-                Stop & Save
-              </button>
-            </div>
+            <button
+              onClick={handleReset}
+              className="w-full py-4 px-6 bg-gray-600 hover:bg-gray-700 text-white font-semibold rounded-xl transition-colors"
+            >
+              Stop & Save
+            </button>
           )}
         </div>
 
@@ -205,7 +221,7 @@ export default function Home() {
           <div className="text-center text-sm text-gray-500 space-y-1">
             <p>1. Tap &quot;Start Listening&quot; and allow microphone access</p>
             <p>2. Keep the phone nearby – coughs are counted automatically</p>
-            <p>3. Tap &quot;+ Add Cough&quot; for any the app misses</p>
+            <p>3. Tap &quot;Stop &amp; Save&quot; when done – find it later under History</p>
             <p>Keep the screen on – iOS stops the microphone when it locks</p>
             <p className="mt-4 text-gray-600">v{APP_VERSION}</p>
           </div>

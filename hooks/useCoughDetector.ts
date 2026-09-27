@@ -92,10 +92,6 @@ export function useCoughDetector() {
     countingStartRef.current = 0;
   }, []);
 
-  const addManualCough = useCallback(() => {
-    setCoughCount((prev) => prev + 1);
-  }, []);
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -116,6 +112,5 @@ export function useCoughDetector() {
     elapsedSeconds,
     start,
     reset,
-    addManualCough,
   };
 }
