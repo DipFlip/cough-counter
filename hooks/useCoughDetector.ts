@@ -1,173 +1,180 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { CoughEngine, CoughEvent } from "@/lib/coughEngine";
 
-const CALIBRATION_DURATION = 3000; // 3 seconds
-const COUGH_DEBOUNCE = 1000; // 1 second debounce (max 1 cough per second)
-const DEFAULT_THRESHOLD_MULTIPLIER = 0.75; // 75% of calibration volume
-const THRESHOLD_STEP = 2; // Amount to adjust threshold by
+const DEFAULT_MIN_COUGH_SCORE = 0.2; // YAMNet "Cough" probability needed to count
+const SCORE_STEP = 0.05;
+const MAX_EVENTS_SHOWN = 20;
+const MAX_CLIPS_KEPT = 20; // ~200KB each, so only keep recent ones for playback
 
-interface UseCoughDetectorProps {
-  volume: number;
-  isListening: boolean;
+export interface DetectedEvent extends Omit<CoughEvent, "clip"> {
+  /** Whether this event is included in the count (after any user correction) */
+  counted: boolean;
+  corrected: boolean;
 }
 
-export function useCoughDetector({ volume, isListening }: UseCoughDetectorProps) {
-  const [state, setState] = useState<"idle" | "calibrating" | "counting">("idle");
-  const [calibrationVolume, setCalibrationVolume] = useState(0);
-  const [threshold, setThreshold] = useState(0);
-  const [coughCount, setCoughCount] = useState(0);
-  const [coughsPerHour, setCoughsPerHour] = useState(0);
-  const [calibrationProgress, setCalibrationProgress] = useState(0);
+export function useCoughDetector() {
+  const [state, setState] = useState<"idle" | "loading" | "counting">("idle");
+  const [error, setError] = useState<string | null>(null);
+  const [level, setLevel] = useState(0);
+  const [minCoughScore, setMinCoughScore] = useState(DEFAULT_MIN_COUGH_SCORE);
+  const [events, setEvents] = useState<DetectedEvent[]>([]);
+  const [manualCoughs, setManualCoughs] = useState(0);
+  const [flash, setFlash] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
-  const peakVolumeRef = useRef(0);
-  const coughTimestampsRef = useRef<number[]>([]);
-  const lastCoughTimeRef = useRef(0);
-  const calibrationStartRef = useRef(0);
+  const engineRef = useRef<CoughEngine | null>(null);
   const countingStartRef = useRef(0);
   const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const clipsRef = useRef(new Map<number, Float32Array>());
+  const flashTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const calculateCPH = useCallback((currentCoughCount: number, currentElapsedSeconds: number) => {
-    if (currentElapsedSeconds <= 0) {
-      setCoughsPerHour(0);
-      return;
-    }
-    const elapsedHours = currentElapsedSeconds / 3600;
-    const cph = currentCoughCount / elapsedHours;
-    setCoughsPerHour(cph);
-  }, []);
-
-  const startCalibration = useCallback(() => {
-    setState("calibrating");
-    peakVolumeRef.current = 0;
-    calibrationStartRef.current = Date.now();
-    setCalibrationProgress(0);
-
-    // Update progress during calibration
-    const progressInterval = setInterval(() => {
-      const elapsed = Date.now() - calibrationStartRef.current;
-      const progress = Math.min(100, (elapsed / CALIBRATION_DURATION) * 100);
-      setCalibrationProgress(progress);
-
-      if (elapsed >= CALIBRATION_DURATION) {
-        clearInterval(progressInterval);
-      }
-    }, 50);
-
-    // End calibration after duration
-    setTimeout(() => {
-      clearInterval(progressInterval);
-      setCalibrationProgress(100);
-
-      if (peakVolumeRef.current > 0) {
-        setCalibrationVolume(peakVolumeRef.current);
-        setThreshold(peakVolumeRef.current * DEFAULT_THRESHOLD_MULTIPLIER);
-        setState("counting");
-        countingStartRef.current = Date.now();
-        setElapsedSeconds(0);
-
-        // Start timer interval (update every second)
-        timerIntervalRef.current = setInterval(() => {
-          const elapsed = Math.floor((Date.now() - countingStartRef.current) / 1000);
-          setElapsedSeconds(elapsed);
-        }, 1000);
-      } else {
-        // No sound detected, reset
-        setState("idle");
-        setCalibrationProgress(0);
-      }
-    }, CALIBRATION_DURATION);
-  }, []);
-
-  const reset = useCallback(() => {
-    setState("idle");
-    setCalibrationVolume(0);
-    setThreshold(0);
-    setCoughCount(0);
-    setCoughsPerHour(0);
-    setCalibrationProgress(0);
-    setElapsedSeconds(0);
-    peakVolumeRef.current = 0;
-    coughTimestampsRef.current = [];
-    lastCoughTimeRef.current = 0;
-    countingStartRef.current = 0;
-
+  const stopLoops = () => {
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
     }
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    if (flashTimeoutRef.current) {
+      clearTimeout(flashTimeoutRef.current);
+      flashTimeoutRef.current = null;
+    }
+  };
+
+  const start = useCallback(async () => {
+    setError(null);
+    setState("loading");
+
+    const engine = new CoughEngine({
+      onEvent: ({ clip, ...event }) => {
+        const clips = clipsRef.current;
+        clips.set(event.id, clip);
+        if (clips.size > MAX_CLIPS_KEPT) clips.delete(clips.keys().next().value!);
+        setEvents((prev) => [{ ...event, counted: event.isCough, corrected: false }, ...prev]);
+        if (event.isCough) {
+          // Flash the screen briefly when a cough is counted
+          setFlash(true);
+          if (flashTimeoutRef.current) clearTimeout(flashTimeoutRef.current);
+          flashTimeoutRef.current = setTimeout(() => setFlash(false), 300);
+        }
+      },
+      onError: setError,
+    });
+    engine.minCoughScore = DEFAULT_MIN_COUGH_SCORE;
+    engineRef.current = engine;
+
+    try {
+      await engine.start();
+    } catch (err) {
+      console.error("Failed to start cough detection:", err);
+      engine.stop();
+      engineRef.current = null;
+      setState("idle");
+      setError(
+        err instanceof DOMException && err.name === "NotAllowedError"
+          ? "Microphone access denied. Please allow microphone access."
+          : "Could not start cough detection. Check your connection (the model is downloaded on first use) and try again."
+      );
+      return;
+    }
+    if (engineRef.current !== engine) return; // Reset while loading
+
+    setState("counting");
+    countingStartRef.current = Date.now();
+    setElapsedSeconds(0);
+    setMinCoughScore(DEFAULT_MIN_COUGH_SCORE);
+
+    timerIntervalRef.current = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - countingStartRef.current) / 1000));
+    }, 1000);
+
+    const pollLevel = () => {
+      setLevel(engine.level);
+      animationFrameRef.current = requestAnimationFrame(pollLevel);
+    };
+    pollLevel();
+  }, []);
+
+  const reset = useCallback(() => {
+    stopLoops();
+    engineRef.current?.stop();
+    engineRef.current = null;
+    setState("idle");
+    setLevel(0);
+    setEvents([]);
+    clipsRef.current.clear();
+    setManualCoughs(0);
+    setFlash(false);
+    setElapsedSeconds(0);
+    countingStartRef.current = 0;
   }, []);
 
   const addManualCough = useCallback(() => {
-    setCoughCount((prev) => {
-      const newCount = prev + 1;
-      const elapsed = Math.floor((Date.now() - countingStartRef.current) / 1000);
-      calculateCPH(newCount, elapsed);
-      return newCount;
+    setManualCoughs((prev) => prev + 1);
+  }, []);
+
+  /** Flip whether an event counts as a cough (fixes false positives / misses) */
+  const toggleEvent = useCallback((id: number) => {
+    setEvents((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, counted: !e.counted, corrected: true } : e))
+    );
+  }, []);
+
+  const playEvent = useCallback((event: DetectedEvent) => {
+    const clip = clipsRef.current.get(event.id);
+    if (clip) engineRef.current?.playClip(clip, event.sampleRate);
+  }, []);
+
+  const hasClip = useCallback((id: number) => clipsRef.current.has(id), []);
+
+  const updateMinScore = useCallback((delta: number) => {
+    setMinCoughScore((prev) => {
+      const next = Math.round(Math.min(0.95, Math.max(0.05, prev + delta)) * 100) / 100;
+      if (engineRef.current) engineRef.current.minCoughScore = next;
+      // Re-evaluate past events the user hasn't corrected by hand
+      setEvents((events) =>
+        events.map((e) => (e.corrected ? e : { ...e, counted: e.coughScore >= next }))
+      );
+      return next;
     });
-  }, [calculateCPH]);
-
-  const raiseThreshold = useCallback(() => {
-    setThreshold((prev) => Math.min(100, prev + THRESHOLD_STEP));
   }, []);
 
-  const lowerThreshold = useCallback(() => {
-    setThreshold((prev) => Math.max(1, prev - THRESHOLD_STEP));
-  }, []);
-
-  // Track peak volume during calibration
-  useEffect(() => {
-    if (state === "calibrating" && volume > peakVolumeRef.current) {
-      peakVolumeRef.current = volume;
-    }
-  }, [state, volume]);
-
-  // Detect coughs during counting
-  useEffect(() => {
-    if (state !== "counting" || !isListening) return;
-
-    const now = Date.now();
-
-    if (volume > threshold && now - lastCoughTimeRef.current > COUGH_DEBOUNCE) {
-      lastCoughTimeRef.current = now;
-      setCoughCount((prev) => {
-        const newCount = prev + 1;
-        const elapsed = Math.floor((Date.now() - countingStartRef.current) / 1000);
-        calculateCPH(newCount, elapsed);
-        return newCount;
-      });
-    }
-  }, [state, volume, threshold, isListening, calculateCPH]);
-
-  // Update CPH every second
-  useEffect(() => {
-    if (state === "counting" && elapsedSeconds > 0) {
-      calculateCPH(coughCount, elapsedSeconds);
-    }
-  }, [state, elapsedSeconds, coughCount, calculateCPH]);
+  const raiseMinScore = useCallback(() => updateMinScore(SCORE_STEP), [updateMinScore]);
+  const lowerMinScore = useCallback(() => updateMinScore(-SCORE_STEP), [updateMinScore]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (timerIntervalRef.current) {
-        clearInterval(timerIntervalRef.current);
-      }
+      stopLoops();
+      engineRef.current?.stop();
     };
   }, []);
 
+  const coughCount = events.filter((e) => e.counted).length + manualCoughs;
+  const coughsPerHour = elapsedSeconds > 0 ? coughCount / (elapsedSeconds / 3600) : 0;
+
   return {
     state,
-    calibrationVolume,
-    threshold,
+    error,
+    level,
+    minCoughScore,
+    events: events.slice(0, MAX_EVENTS_SHOWN),
     coughCount,
     coughsPerHour,
-    calibrationProgress,
+    flash,
     elapsedSeconds,
-    startCalibration,
+    start,
     reset,
     addManualCough,
-    raiseThreshold,
-    lowerThreshold,
+    toggleEvent,
+    playEvent,
+    hasClip,
+    raiseMinScore,
+    lowerMinScore,
   };
 }

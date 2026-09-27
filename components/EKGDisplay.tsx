@@ -3,16 +3,18 @@
 import { useEffect, useRef } from "react";
 
 interface EKGDisplayProps {
+  /** Loudness in dB above the background noise floor */
   volume: number;
+  /** Level at which a sound is sent to the classifier */
   threshold: number;
-  calibrationVolume: number;
   showThreshold: boolean;
 }
 
 const HISTORY_LENGTH = 150;
 const HEIGHT = 120;
+const MAX_DB = 40;
 
-export function EKGDisplay({ volume, threshold, calibrationVolume, showThreshold }: EKGDisplayProps) {
+export function EKGDisplay({ volume, threshold, showThreshold }: EKGDisplayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const historyRef = useRef<number[]>([]);
 
@@ -32,9 +34,7 @@ export function EKGDisplay({ volume, threshold, calibrationVolume, showThreshold
     const width = canvas.width;
     const height = canvas.height;
 
-    // Scale based on calibration volume (with some headroom)
-    // Use calibration volume * 1.3 as max, or 100 if not calibrated
-    const maxScale = calibrationVolume > 0 ? calibrationVolume * 1.3 : 100;
+    const maxScale = MAX_DB;
 
     // Clear canvas
     ctx.fillStyle = "#1a1a2e";
@@ -71,7 +71,7 @@ export function EKGDisplay({ volume, threshold, calibrationVolume, showThreshold
       // Threshold label
       ctx.fillStyle = "#fbbf24";
       ctx.font = "12px monospace";
-      ctx.fillText(`Threshold: ${threshold.toFixed(1)}`, 5, Math.max(15, thresholdY - 5));
+      ctx.fillText(`Trigger: +${threshold} dB`, 5, Math.max(15, thresholdY - 5));
     }
 
     // Draw volume line
@@ -113,8 +113,8 @@ export function EKGDisplay({ volume, threshold, calibrationVolume, showThreshold
     // Draw current value
     ctx.fillStyle = "#ffffff";
     ctx.font = "14px monospace";
-    ctx.fillText(`Vol: ${volume.toFixed(1)}`, width - 80, 20);
-  }, [volume, threshold, calibrationVolume, showThreshold]);
+    ctx.fillText(`+${volume.toFixed(0)} dB`, width - 70, 20);
+  }, [volume, threshold, showThreshold]);
 
   return (
     <div className="w-full">

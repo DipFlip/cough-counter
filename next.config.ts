@@ -4,6 +4,8 @@ import withPWA from "next-pwa";
 const nextConfig: NextConfig = {
   // Allow webpack config from next-pwa with Turbopack
   turbopack: {},
+  // Allow testing the dev server from phones on the local network
+  allowedDevOrigins: ["192.168.*.*", "10.*.*.*", "*.local"],
 };
 
 const pwaConfig = withPWA({

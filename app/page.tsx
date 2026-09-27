@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useAudioAnalyzer } from "@/hooks/useAudioAnalyzer";
 import { useCoughDetector } from "@/hooks/useCoughDetector";
+import { START_DB } from "@/lib/coughEngine";
 import { useRecordings } from "@/hooks/useRecordings";
 import { EKGDisplay } from "@/components/EKGDisplay";
 import { APP_VERSION } from "@/lib/version";
@@ -11,21 +11,25 @@ import { APP_VERSION } from "@/lib/version";
 const AUTO_SAVE_INTERVAL = 60000; // 60 seconds
 
 export default function Home() {
-  const { volume, isListening, error, start, stop } = useAudioAnalyzer();
   const {
     state,
-    threshold,
-    calibrationVolume,
+    error,
+    level,
+    minCoughScore,
+    events,
     coughCount,
     coughsPerHour,
-    calibrationProgress,
+    flash,
     elapsedSeconds,
-    startCalibration,
+    start,
     reset,
     addManualCough,
-    raiseThreshold,
-    lowerThreshold,
-  } = useCoughDetector({ volume, isListening });
+    toggleEvent,
+    playEvent,
+    hasClip,
+    raiseMinScore,
+    lowerMinScore,
+  } = useCoughDetector();
 
   const { upsertRecording } = useRecordings();
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -94,16 +98,6 @@ export default function Home() {
     }
   }, [coughCount]);
 
-  const handleStart = async () => {
-    await start();
-  };
-
-  const handleCalibrate = () => {
-    if (isListening) {
-      startCalibration();
-    }
-  };
-
   const handleReset = () => {
     // Final save before reset
     if (state === "counting" && elapsedSeconds > 0) {
@@ -116,16 +110,12 @@ export default function Home() {
     sessionStartRef.current = null;
 
     reset();
-    stop();
   };
-
-  // Flash effect when cough detected
-  const showCoughFlash = state === "counting" && volume > threshold;
 
   return (
     <div
       className={`min-h-screen flex flex-col items-center justify-center p-8 pb-24 transition-colors duration-100 ${
-        showCoughFlash ? "bg-red-900" : "bg-gray-900"
+        flash ? "bg-red-900" : "bg-gray-900"
       }`}
     >
       <div className="w-full max-w-2xl space-y-6">
@@ -133,8 +123,8 @@ export default function Home() {
         <div className="text-center">
           <h1 className="text-4xl font-bold text-white">Cough Counter</h1>
           <p className="mt-2 text-gray-400">
-            {state === "idle" && "Calibrate your microphone to start counting"}
-            {state === "calibrating" && "Cough now to calibrate!"}
+            {state === "idle" && "Start listening to count coughs"}
+            {state === "loading" && "Loading cough detection model..."}
             {state === "counting" && "Listening for coughs..."}
           </p>
         </div>
@@ -147,28 +137,8 @@ export default function Home() {
         )}
 
         {/* EKG Display */}
-        {isListening && (
-          <EKGDisplay
-            volume={volume}
-            threshold={threshold}
-            calibrationVolume={calibrationVolume}
-            showThreshold={state === "counting"}
-          />
-        )}
-
-        {/* Calibration progress */}
-        {state === "calibrating" && (
-          <div className="space-y-2">
-            <div className="text-center text-lg font-medium text-gray-300">
-              Calibrating... {Math.round(calibrationProgress)}%
-            </div>
-            <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-blue-500 transition-all duration-100"
-                style={{ width: `${calibrationProgress}%` }}
-              />
-            </div>
-          </div>
+        {state === "counting" && (
+          <EKGDisplay volume={level} threshold={START_DB} showThreshold />
         )}
 
         {/* Stats */}
@@ -200,44 +170,90 @@ export default function Home() {
           </div>
         )}
 
-        {/* Threshold controls */}
+        {/* Sensitivity controls */}
         {state === "counting" && (
           <div className="flex items-center justify-center gap-4">
             <button
-              onClick={lowerThreshold}
+              onClick={raiseMinScore}
               className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-colors"
             >
-              − Threshold
+              − Sensitivity
             </button>
-            <span className="text-gray-300 font-mono">
-              {threshold.toFixed(1)}
+            <span className="text-gray-300 font-mono text-center">
+              {Math.round(minCoughScore * 100)}%
+              <span className="block text-xs text-gray-500">min confidence</span>
             </span>
             <button
-              onClick={raiseThreshold}
+              onClick={lowerMinScore}
               className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white font-semibold rounded-lg transition-colors"
             >
-              + Threshold
+              + Sensitivity
             </button>
+          </div>
+        )}
+
+        {/* Detected sounds: tap to correct, ▶ to listen */}
+        {state === "counting" && events.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-sm text-gray-400">
+              Recent sounds <span className="text-gray-600">· tap to mark cough / not cough</span>
+            </div>
+            <ul className="space-y-1">
+              {events.map((event) => (
+                <li
+                  key={event.id}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${
+                    event.counted ? "bg-red-950/60 text-red-200" : "bg-gray-800 text-gray-400"
+                  }`}
+                >
+                  <button
+                    onClick={() => toggleEvent(event.id)}
+                    className="flex-1 flex items-center gap-3 text-left"
+                  >
+                    <span className="w-5">{event.counted ? "✓" : "✗"}</span>
+                    <span className="font-mono text-gray-500">
+                      {new Date(event.time).toLocaleTimeString()}
+                    </span>
+                    <span className="flex-1 truncate">
+                      {event.counted ? "Cough" : event.topLabel || "Unknown"}
+                      {event.corrected && <span className="text-gray-500"> (edited)</span>}
+                    </span>
+                    <span className="font-mono text-gray-500">
+                      cough {Math.round(event.coughScore * 100)}%
+                    </span>
+                  </button>
+                  {hasClip(event.id) && (
+                    <button
+                      onClick={() => playEvent(event)}
+                      className="px-2 text-gray-300 hover:text-white"
+                      aria-label="Play clip"
+                    >
+                      ▶
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
         {/* Action buttons */}
         <div className="flex flex-col gap-4">
-          {state === "idle" && !isListening && (
+          {state === "idle" && (
             <button
-              onClick={handleStart}
-              className="w-full py-4 px-6 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors"
+              onClick={start}
+              className="w-full py-4 px-6 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl transition-colors"
             >
-              Enable Microphone
+              Start Listening
             </button>
           )}
 
-          {state === "idle" && isListening && (
+          {state === "loading" && (
             <button
-              onClick={handleCalibrate}
-              className="w-full py-4 px-6 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl transition-colors"
+              disabled
+              className="w-full py-4 px-6 bg-gray-700 text-gray-400 font-semibold rounded-xl"
             >
-              Start Calibration
+              Loading...
             </button>
           )}
 
@@ -262,9 +278,10 @@ export default function Home() {
         {/* Instructions */}
         {state === "idle" && (
           <div className="text-center text-sm text-gray-500 space-y-1">
-            <p>1. Click &quot;Enable Microphone&quot; to allow access</p>
-            <p>2. Click &quot;Start Calibration&quot; and cough once</p>
-            <p>3. The app will detect coughs at 75% of your calibration volume</p>
+            <p>1. Tap &quot;Start Listening&quot; and allow microphone access</p>
+            <p>2. Sounds louder than the background are checked by an AI cough classifier</p>
+            <p>3. Tap any detected sound to correct it, or ▶ to hear it</p>
+            <p>Keep the screen on – iOS stops the microphone when it locks</p>
             <p className="mt-4 text-gray-600">v{APP_VERSION}</p>
           </div>
         )}
