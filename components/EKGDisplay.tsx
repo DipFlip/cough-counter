@@ -5,16 +5,13 @@ import { useEffect, useRef } from "react";
 interface EKGDisplayProps {
   /** Loudness in dB above the background noise floor */
   volume: number;
-  /** Level at which a sound is sent to the classifier */
-  threshold: number;
-  showThreshold: boolean;
 }
 
 const HISTORY_LENGTH = 150;
 const HEIGHT = 120;
 const MAX_DB = 40;
 
-export function EKGDisplay({ volume, threshold, showThreshold }: EKGDisplayProps) {
+export function EKGDisplay({ volume }: EKGDisplayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const historyRef = useRef<number[]>([]);
 
@@ -34,7 +31,6 @@ export function EKGDisplay({ volume, threshold, showThreshold }: EKGDisplayProps
     const width = canvas.width;
     const height = canvas.height;
 
-    const maxScale = MAX_DB;
 
     // Clear canvas
     ctx.fillStyle = "#1a1a2e";
@@ -56,24 +52,6 @@ export function EKGDisplay({ volume, threshold, showThreshold }: EKGDisplayProps
       ctx.stroke();
     }
 
-    // Draw threshold line
-    if (showThreshold && threshold > 0) {
-      const thresholdY = height - (threshold / maxScale) * height;
-      ctx.strokeStyle = "#fbbf24";
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 5]);
-      ctx.beginPath();
-      ctx.moveTo(0, thresholdY);
-      ctx.lineTo(width, thresholdY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Threshold label
-      ctx.fillStyle = "#fbbf24";
-      ctx.font = "12px monospace";
-      ctx.fillText(`Trigger: +${threshold} dB`, 5, Math.max(15, thresholdY - 5));
-    }
-
     // Draw volume line
     const history = historyRef.current;
     if (history.length < 2) return;
@@ -87,20 +65,7 @@ export function EKGDisplay({ volume, threshold, showThreshold }: EKGDisplayProps
 
     for (let i = 0; i < history.length; i++) {
       const x = startX + i * stepX;
-      const y = height - Math.min(1, history[i] / maxScale) * height;
-
-      // Color red if above threshold
-      if (showThreshold && history[i] > threshold) {
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.strokeStyle = "#ef4444";
-        ctx.moveTo(x, y);
-      } else if (i > 0 && history[i - 1] > threshold && history[i] <= threshold) {
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.strokeStyle = "#22c55e";
-        ctx.moveTo(x, y);
-      }
+      const y = height - Math.min(1, history[i] / MAX_DB) * height;
 
       if (i === 0) {
         ctx.moveTo(x, y);
@@ -109,12 +74,7 @@ export function EKGDisplay({ volume, threshold, showThreshold }: EKGDisplayProps
       }
     }
     ctx.stroke();
-
-    // Draw current value
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "14px monospace";
-    ctx.fillText(`+${volume.toFixed(0)} dB`, width - 70, 20);
-  }, [volume, threshold, showThreshold]);
+  }, [volume]);
 
   return (
     <div className="w-full">

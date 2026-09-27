@@ -11,7 +11,8 @@ const FLOOR_PERCENTILE = 0.2;
 const MIN_FLOOR_DB = -75; // Ignore digital silence (e.g. before the mic warms up)
 const FLOOR_UPDATE_EVERY = 20; // Recompute the noise floor every 200ms
 const WARMUP_FRAMES = 50; // Don't trigger until we have 0.5s of background
-export const START_DB = 12; // Candidate starts this far above the noise floor
+const MIN_COUGH_SCORE = 0.35; // YAMNet "Cough" probability needed to count
+const START_DB = 12; // Candidate starts this far above the noise floor
 const END_DB = 6; // ...and ends when it drops below this
 const END_HOLD_MS = 80; // Must stay quiet this long to end the candidate
 const MIN_EVENT_MS = 60;
@@ -25,19 +26,8 @@ const YAMNET_WINDOW_MS = 975;
 const WINDOW_OFFSETS_MS = [0, 110, 225];
 const RING_SECONDS = 4;
 
-export interface CoughEvent {
-  id: number;
-  time: number;
-  coughScore: number;
-  topLabel: string;
-  topScore: number;
-  isCough: boolean;
-  clip: Float32Array;
-  sampleRate: number;
-}
-
 interface CoughEngineCallbacks {
-  onEvent: (event: CoughEvent) => void;
+  onCough: () => void;
   onError: (message: string) => void;
 }
 
@@ -67,7 +57,6 @@ export class CoughEngine {
   /** Current loudness in dB above the noise floor (for display) */
   level = 0;
   noiseFloor = -100;
-  minCoughScore = 0.2;
 
   private callbacks: CoughEngineCallbacks;
   private ctx: AudioContext | null = null;
@@ -92,7 +81,6 @@ export class CoughEngine {
   private quietFrames = 0;
   private lastOnset = -Infinity;
   private pending: number[] = [];
-  private nextId = 1;
 
   constructor(callbacks: CoughEngineCallbacks) {
     this.callbacks = callbacks;
@@ -166,16 +154,6 @@ export class CoughEngine {
     this.ctx = null;
     this.wakeLock = null;
     this.level = 0;
-  }
-
-  playClip(clip: Float32Array, sampleRate: number) {
-    if (!this.ctx) return;
-    const buffer = this.ctx.createBuffer(1, clip.length, sampleRate);
-    buffer.copyToChannel(new Float32Array(clip), 0);
-    const source = this.ctx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(this.ctx.destination);
-    source.start();
   }
 
   private handleVisibility = () => {
@@ -274,7 +252,7 @@ export class CoughEngine {
     while (this.pending.length > 0 && this.written >= this.pending[0] + post) {
       const onset = this.pending.shift()!;
       const start = Math.max(onset - pre, this.written - this.ring.length);
-      this.classify(onset, this.readRing(start, onset + post));
+      this.classify(this.readRing(start, onset + post));
     }
   }
 
@@ -286,12 +264,10 @@ export class CoughEngine {
     return clip;
   }
 
-  private classify(onset: number, clip: Float32Array) {
+  private classify(clip: Float32Array) {
     if (!this.classifier) return;
 
-    let coughScore = -1;
-    let topLabel = "";
-    let topScore = 0;
+    let coughScore = 0;
     const windowLength = Math.round((YAMNET_WINDOW_MS * this.sampleRate) / 1000);
     try {
       for (const offsetMs of WINDOW_OFFSETS_MS) {
@@ -299,28 +275,13 @@ export class CoughEngine {
         const window = clip.subarray(offset, offset + windowLength);
         const categories = this.classifier.classify(window, this.sampleRate)[0]?.classifications[0]?.categories ?? [];
         const cough = categories.find((c) => (c.categoryName || c.displayName).toLowerCase() === "cough");
-        // Report the window that looks most like a cough
-        if ((cough?.score ?? 0) > coughScore) {
-          coughScore = cough?.score ?? 0;
-          topLabel = categories[0] ? categories[0].categoryName || categories[0].displayName : "";
-          topScore = categories[0]?.score ?? 0;
-        }
+        coughScore = Math.max(coughScore, cough?.score ?? 0);
       }
     } catch (err) {
       console.error("Classification failed:", err);
       return;
     }
 
-    const ageMs = ((this.written - onset) / this.sampleRate) * 1000;
-    this.callbacks.onEvent({
-      id: this.nextId++,
-      time: Date.now() - ageMs,
-      coughScore,
-      topLabel,
-      topScore,
-      isCough: coughScore >= this.minCoughScore,
-      clip,
-      sampleRate: this.sampleRate,
-    });
+    if (coughScore >= MIN_COUGH_SCORE) this.callbacks.onCough();
   }
 }
