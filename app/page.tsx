@@ -13,6 +13,8 @@ export default function Home() {
   const {
     state,
     error,
+    recovering,
+    resume,
     level,
     coughCount,
     coughsPerHour,
@@ -124,7 +126,7 @@ export default function Home() {
           <p className="mt-2 text-gray-400">
             {state === "idle" && "Start listening to count coughs"}
             {state === "loading" && "Loading cough detection model..."}
-            {state === "counting" && "Listening for coughs..."}
+            {state === "counting" && (recovering ? "Reconnecting microphone..." : error ? "Listening paused" : "Listening for coughs...")}
           </p>
         </div>
 
@@ -184,6 +186,15 @@ export default function Home() {
           <div className="text-center text-gray-500 text-sm">
             ✓ Auto-saved at {lastSaved.toLocaleTimeString()}
           </div>
+        )}
+
+        {state === "counting" && error && !recovering && (
+          <button
+            onClick={resume}
+            className="w-full py-4 px-6 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-xl"
+          >
+            Resume Listening
+          </button>
         )}
 
         {/* Action buttons */}

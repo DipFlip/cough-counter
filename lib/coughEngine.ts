@@ -104,6 +104,11 @@ export class CoughEngine {
           noiseSuppression: false,
           echoCancellation: false,
         },
+      }).then((stream) => {
+        // Capture can resolve after stop(), or after another startup task fails.
+        if (this.ctx !== ctx) stream.getTracks().forEach((track) => track.stop());
+        else this.stream = stream;
+        return stream;
       }),
       loadClassifier(),
       ctx.audioWorklet.addModule("/cough-worklet.js"),
@@ -122,7 +127,14 @@ export class CoughEngine {
 
     const source = ctx.createMediaStreamSource(stream);
     const node = new AudioWorkletNode(ctx, "capture-processor");
-    node.port.onmessage = (e: MessageEvent<Float32Array>) => this.handleSamples(e.data);
+    // A running context alone does not prove that capture survived an interruption.
+    const receivingAudio = new Promise<void>((resolve) => {
+      node.port.onmessage = (e: MessageEvent<Float32Array>) => {
+        if (this.ctx !== ctx || e.data.length === 0) return;
+        this.handleSamples(e.data);
+        resolve();
+      };
+    });
     // The worklet must be pulled by the graph to run; route it to a muted output
     const mute = ctx.createGain();
     mute.gain.value = 0;
@@ -130,23 +142,26 @@ export class CoughEngine {
     this.node = node;
 
     stream.getAudioTracks()[0]?.addEventListener("ended", () => {
-      this.callbacks.onError("Microphone stopped. Tap Stop & Save and start again.");
+      if (this.ctx === ctx) this.callbacks.onError("Microphone paused. Tap Resume Listening to reconnect.");
     });
     ctx.onstatechange = () => this.resumeIfNeeded();
     document.addEventListener("visibilitychange", this.handleVisibility);
 
     await ctx.resume();
-    await this.requestWakeLock();
+    await receivingAudio;
+    if (this.ctx === ctx) await this.requestWakeLock();
   }
 
   stop() {
     document.removeEventListener("visibilitychange", this.handleVisibility);
     this.node?.port.close();
     this.node?.disconnect();
-    this.stream?.getTracks().forEach((track) => track.stop());
+    const stream = this.stream;
+    this.stream = null;
+    stream?.getTracks().forEach((track) => track.stop());
     if (this.ctx) {
       this.ctx.onstatechange = null;
-      this.ctx.close();
+      this.ctx.close().catch(() => {});
     }
     this.wakeLock?.release().catch(() => {});
     this.node = null;
@@ -175,7 +190,11 @@ export class CoughEngine {
   private async requestWakeLock() {
     try {
       if (!("wakeLock" in navigator) || (this.wakeLock && !this.wakeLock.released)) return;
-      this.wakeLock = await navigator.wakeLock.request("screen");
+      const ctx = this.ctx;
+      if (!ctx || document.visibilityState !== "visible") return;
+      const lock = await navigator.wakeLock.request("screen");
+      if (this.ctx !== ctx) await lock.release();
+      else this.wakeLock = lock;
     } catch {
       // Not supported or not allowed; counting still works while the screen is on
     }
